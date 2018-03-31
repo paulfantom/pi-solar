@@ -1,0 +1,3 @@
+paho-mqtt
+PyYAML
+RPi.GPIO
