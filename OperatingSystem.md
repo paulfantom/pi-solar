@@ -4,11 +4,21 @@
 
 ### [resinOS](https://resinos.io)
 
-- Docker
+- Docker-compatible container engine
 - resilient to power loss
 - based on yocto
 - dropbear instead of openSSH
 - made for IoT
+- managed from "cloud"
+- advanced partition layout
+
+### [hypriotOS](https://blog.hypriot.com)
+
+- Docker
+- simple (debian-based)
+- SD card could be destroyed on power loss
+- made for docker
+- needs customization
 
 
 
