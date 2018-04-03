@@ -14,6 +14,6 @@
 
 ## Articles
 
-http://k3a.me/how-to-make-raspberrypi-truly-read-only-reliable-and-trouble-free/
-https://hallard.me/raspberry-pi-read-only/
-https://github.com/azlux/log2ram
+- http://k3a.me/how-to-make-raspberrypi-truly-read-only-reliable-and-trouble-free/
+- https://hallard.me/raspberry-pi-read-only/
+- https://github.com/azlux/log2ram
