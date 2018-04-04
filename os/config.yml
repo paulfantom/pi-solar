@@ -1,0 +1,65 @@
+#cloud-config
+# vim: syntax=yaml
+#
+manage_etc_hosts: true
+
+timezone: "Europe/Warsaw"
+
+mounts:
+  - [ "proc", "/proc", "proc", "defaults", 0, 0 ] 
+  - [ "/dev/mmcblk0p1", "/boot", "vfat", "defaults,ro", 0, 2 ]
+  - [ "/dev/mmcblk0p2", "/", "ext4", "defaults,noatime,ro", 0, 1 ]
+  - [ "/dev/mmcblk0p3", "/var/lib/docker", "ext4", "defaults,noatime", 0, 0 ]
+  - [ "tmpfs", "/tmp", "tmpfs", "rw,nosuid,nodev" ]
+  - [ "tmpfs", "/var/log", "tmpfs", "rw,nosuid,nodev" ]
+  - [ "tmpfs", "/var/tmp", "tmpfs", "rw,nosuid,nodev" ]
+  - [ "tmpfs", "/var/lib/cloud/data", "tmpfs", "rw,nosuid,nodev" ]
+
+users:
+  - name: paulfantom
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users,docker,video
+    ssh-authorized-keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC/63CQz9m4DHvowZKu5/Rlczv1yUxMy25qEJ9WWG8kmJFwzwSYdnZpfQqWINZoAKo1aJuusbrrwrsCSsXS2UboI6UmZD6QXksv4CbdoQxjEmgGTyXaeLCdHqBDt7VLyxN8sQ8LBENHyQywlpfXQC3iV+QoM3DrYsnSML50WrhvRwaump7DkwbL1s3Gv3apZD0AAsxu5EwTzjd1WWIiIaYCeUe6lbhwXTTOsfmWLFMptNtDBvR3CqoV1GC4u3roh66sM3/brR2PJ7FXgt+kafpjL6IYOTsOSaLGuvxccqPVZuHKPM+8dYqybTPslK9qt3cwJ+Kz4afpVeHDIgCxxq4Z0QlKR6NZ7qtpSRFPYAya71kj/zGhLeafgmZ2flglzPiQ2+GC/Gzh2TJFY5kka1ce3zGRFgA/RE52Qgq0i0bukHrreve6YL109uCta+RiCfVvFEnPHeEY2OEPOOixZd3v4R+vbaXB8xwNM3faMo038qzmNUDHT5CJ7sJib6us9kJpTq1n/XNObIklCe0MfGrMPhDrBuf7XTPxm4H1ljgHckw/zVhvgkyyX7M9CCE3SlDHrL+gdOoILoFEG8ePMOd6ObirJg9DFlWEyIQ25DeYJHdo0mV03OWnQQVL2nI5AItDrGlH47N2vliD1Ffo7DlLq4m1Cx2z+PmUH89FrIuIcw== pawel@krupa.net.pl
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+packages:
+  - i2c-tools
+  - vim
+  - busybox-syslogd
+
+write_files:
+  - path: /etc/modules-load.d/additional.conf
+    content: |
+      i2c-dev
+      i2c:mcp7941x
+  - path: /etc/rc.local
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      echo mcp7941x 0x6f > /sys/class/i2c-adapter/i2c-1/new_device
+      ( sleep 2; hwclock -s ) &
+  - path: /boot/cmdline.txt
+    content: "dwc_otg.lpm_enable=0 console=serial0,115200 console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 cgroup_enable=cpuset cgroup_enable=memory swapaccount=1 elevator=deadline rootwait fsck.mode=skip noswap ro"
+
+runcmd:
+  - apt remove --purge rsyslog logrotate fake-hwclock
+  - sed -i 's/driftfile \/var\/lib\/ntp\/ntp.drift/driftfile \/var\/tmp\/ntp.drift/' /etc/ntp.conf
+  - rm -rf /var/lib/dhcp/ /var/lib/dhcpcd5 /var/run /var/spool /var/lock /etc/resolv.conf /etc/dhcpcd.secret
+  - ln -s /tmp /var/lib/dhcp
+  - ln -s /tmp /var/lib/dhcpcd5
+  - ln -s /tmp /var/run
+  - ln -s /tmp /var/spool
+  - ln -s /tmp /var/lock
+  - ln -s /tmp/dhcpcd.resolv.conf /etc/resolv.conf
+  - ln -s /tmp/dhcpcd.secret /etc/dhcpcd.secret
+  - touch /etc/cloud/cloud-init.disabled
+
+power_state:
+  mode: reboot
+  message: Bye Bye
+  timeout: 30
+  condition: True

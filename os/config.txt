@@ -1,0 +1,19 @@
+hdmi_force_hotplug=0
+enable_uart=0
+
+# camera settings, see http://elinux.org/RPiconfig#Camera
+start_x=0
+disable_camera_led=1
+gpu_mem=16
+
+# Enable audio (added by raspberrypi-sys-mods)
+dtparam=audio=on
+
+# Enable I2C
+dtparam=i2c_arm=on
+
+# Enable 1-wire
+dtoverlay=w1-gpio
+
+# Enable RTC
+overlay=i2c-rtc,mcp7941x
