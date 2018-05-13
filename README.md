@@ -9,6 +9,9 @@ This set of applications allows to control a custom made solution to control wat
  - raspberry pi B+
  - uniPi v1.1 board
 
+## Home Assistant Addons:
+ - http://reformedreality.com/home-assistant-control-panel
+
 ## TODO
  - better readme
  - explain algorithm

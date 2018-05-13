@@ -18,4 +18,8 @@ Everything is prepared by configuration files and cloud-init. Here are only reso
 - https://hallard.me/raspberry-pi-read-only/
 - https://github.com/hypriot/image-builder-rpi/issues/119
 
-## 
+## TODO
+
+1. Change hostname
+2. Add aliases `ro` and `rw` for switching `/` partition readonly and writable
+3. Add failasfe command in `.bash_logout` to switch `/` partition readonly

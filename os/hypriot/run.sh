@@ -9,7 +9,7 @@ G="\e[32m"
 R="\e[31m"
 
 # hypriotOS version
-VERSION="1.8.0"
+VERSION="1.9.0"
 IMAGE="https://github.com/hypriot/image-builder-rpi/releases/download/v${VERSION}/hypriotos-rpi-v${VERSION}.img.zip"
 
 install_flash() {
@@ -35,7 +35,11 @@ sudo resize2fs "${DEVICE}"p2 || exit 1
 echo -e "${Y}Creating docker partition...${RST}"
 sudo parted --script -a optimal "${DEVICE}" mkpart primary 2561MiB 100% || exit 1
 sudo mkfs.ext4 "${DEVICE}"p3 || exit 1
-sudo e2label "${DEVICE}"p3 docker || exit 1
+sudo e2label "${DEVICE}"p3 data || exit 1
+mkdir /tmp/data
+sudo mount "${DEVICE}p3" /tmp/data
+sudo mkdir /tmp/data/docker /tmp/data/cloud-init /tmp/data/logs
+sudo umount /tmp/data
 
 echo -e "${G}Finished.${RST}"
 sync

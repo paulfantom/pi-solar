@@ -5,15 +5,18 @@ manage_etc_hosts: true
 
 timezone: "Europe/Warsaw"
 
+resize_rootfs: false
 mounts:
   - [ "proc", "/proc", "proc", "defaults", 0, 0 ] 
   - [ "/dev/mmcblk0p1", "/boot", "vfat", "defaults,ro", 0, 2 ]
   - [ "/dev/mmcblk0p2", "/", "ext4", "defaults,noatime,ro", 0, 1 ]
-  - [ "/dev/mmcblk0p3", "/var/lib/docker", "ext4", "defaults,noatime", 0, 0 ]
+  - [ "/dev/mmcblk0p3", "/srv", "ext4", "defaults,noatime", 0, 0 ]
+  - [ "/srv/cloud-init", "/var/lib/cloud/data", "none", "defaults,bind" ]
+  - [ "/srv/docker", "/var/lib/docker", "none", "defaults,bind" ]
   - [ "tmpfs", "/tmp", "tmpfs", "rw,nosuid,nodev" ]
-  - [ "tmpfs", "/var/log", "tmpfs", "rw,nosuid,nodev" ]
+    #  - [ "tmpfs", "/var/log", "tmpfs", "rw,nosuid,nodev" ]
   - [ "tmpfs", "/var/tmp", "tmpfs", "rw,nosuid,nodev" ]
-  - [ "tmpfs", "/var/lib/cloud/data", "tmpfs", "rw,nosuid,nodev" ]
+  - [ "/srv/logs", "/var/log", "none", "defaults,bind" ]
 
 users:
   - name: paulfantom
@@ -25,7 +28,7 @@ users:
 
 package_update: true
 package_upgrade: true
-package_reboot_if_required: true
+package_reboot_if_required: false
 packages:
   - i2c-tools
   - vim
@@ -46,7 +49,7 @@ write_files:
     content: "dwc_otg.lpm_enable=0 console=serial0,115200 console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 cgroup_enable=cpuset cgroup_enable=memory swapaccount=1 elevator=deadline rootwait fsck.mode=skip noswap ro"
 
 runcmd:
-  - apt remove --purge rsyslog logrotate fake-hwclock
+  - apt remove -y --purge rsyslog logrotate fake-hwclock
   - sed -i 's/driftfile \/var\/lib\/ntp\/ntp.drift/driftfile \/var\/tmp\/ntp.drift/' /etc/ntp.conf
   - rm -rf /var/lib/dhcp/ /var/lib/dhcpcd5 /var/run /var/spool /var/lock /etc/resolv.conf /etc/dhcpcd.secret
   - ln -s /tmp /var/lib/dhcp
@@ -56,7 +59,7 @@ runcmd:
   - ln -s /tmp /var/lock
   - ln -s /tmp/dhcpcd.resolv.conf /etc/resolv.conf
   - ln -s /tmp/dhcpcd.secret /etc/dhcpcd.secret
-  - touch /etc/cloud/cloud-init.disabled
+  - mkdir /srv/docker /srv/cloud-init
 
 power_state:
   mode: reboot
