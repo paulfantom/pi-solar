@@ -280,7 +280,6 @@ class Controller():
         if curr_time < last_run + interval:
             if state:
                 self.set_relay("circulation", True)
-                self.mqtt_publish("actuators", int(value, 2))
         if curr_time > last_run + time_on:
             self.set_relay("circulation", False)
             self.circulation_last_run = curr_time
@@ -336,6 +335,7 @@ class Controller():
             self.run_solar()
             self.run_heater()
         else:
+            self.update_manual_mode()
             print("You are in manual mode for next 10s")
             time.sleep(10)
 
