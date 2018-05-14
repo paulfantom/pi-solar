@@ -28,6 +28,7 @@ ADDR_TEMP_OUTSIDE = "28BECABF0600004F"
 ADDR_INPUT_CIRCULATION = "1"
 ADDR_INPUT_MANUAL_MODE = "2"
 
+USE_THERMISTOR = True
 
 class Controller():
     temp_sensor_addr_map = {
@@ -59,6 +60,8 @@ class Controller():
         "outside"    : MQTT_PREFIX + "/outside/temp",
         "inside"     : MQTT_PREFIX + "/room/1/temp_current"
     }
+    thermistor = USE_THERMISTOR
+
     def __init__(self, external_room_temp=False):
         self.temperatures = {}
         self.relays = {}
@@ -111,7 +114,7 @@ class Controller():
 
     def update_temperature(self, sensor):
         if sensor == "solar_up":
-            value = self.update_solar_temperature()
+            value = self.get_solar_temperature()
         elif sensor == "inside" and self.external_room_temperature_source:
             return
         else:
@@ -130,9 +133,31 @@ class Controller():
             self.temperatures[sensor] = value
             self.mqtt_publish(sensor, value)
 
-    def update_solar_temperature(self):
-        # TODO get temperature from Analog Input and normalize
-        return 70
+    def normalize_thermistor(self, voltage):
+        B = 3950 # Thermistor coefficient (in Kelvin)
+        T0 = 273.15 + 25  # Room temperature (in Kelvin)
+        R0 = 100000 # Thermistor resistance at T0
+        VCC = 12 # Voltage applied to resistance bridge
+        # All calculations are in Kelvin, returned value is in Celsius
+        try:
+            resistance = (voltage * R0) / (VCC - voltage)
+            inv_T = (1/T0) + (1/B) * log(resistance/R0)
+            return 1 / inv_t - 273.15
+        except:
+            return -99
+
+    def get_solar_temperature(self):
+        r = requests.get(EVOK_API + "/json/analoginput/" + str(channel))
+        voltage = float(r.json()['data']['value'])
+        if self.thermistor:
+            return self.normalize_thermistor(voltage)
+        else:
+            T_min = 0   # 0V
+            T_max = 200 # 10V
+            try:
+                return (T_max - T_min) * voltage / 10 + T_min
+            except:
+                return -99
 
     def update_circulation(self):
         r = requests.get(EVOK_API + "/json/input/" + ADDR_INPUT_CIRCULATION)
@@ -349,7 +374,7 @@ class Controller():
 
 
 if __name__ == '__main__':
-     c = Controller()
+     c = Controller(True)
      mqttc = mqtt.Client()
      mqttc.on_connect = c.mqtt_on_connect
      mqttc.on_message = c.mqtt_on_message
