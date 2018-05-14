@@ -45,7 +45,7 @@ tmpfs   /tmp         tmpfs   nodev,nosuid,size=128M          0  0
 10. Executed `raspi-config` to change:
   - timezone
   - hostname
-11. Added `gpu_mem=16` to /boot/config.txt
+11. Added `gpu_mem=16` and `dtparam=pwr_led_trigger=heartbeat` to /boot/config.txt
 12. Changed /boot/cmdline.txt to:
 ```
 dwc_otg.lpm_enable=0 console=serial0,115200 console=tty1 root=PARTUUID=bce30dfe-02 rootfstype=ext4 cgroup_enable=cpuset cgroup_enable=memory swapaccount=1 elevator=deadline fsck.repair=no rootwait fsck.mode=skip noswap ro
