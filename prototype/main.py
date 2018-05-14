@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import requests
 import paho.mqtt.client as mqtt
@@ -6,7 +6,7 @@ import paho.mqtt.publish as publish
 import time
 import math
 
-DEBUG = True
+DEBUG = False
 EVOK_API = "http://192.168.2.28:8080"
 MQTT_BROKER = "192.168.2.2"
 MQTT_PREFIX = "newS"
@@ -104,7 +104,9 @@ class Controller():
         }
         self.manual = False
         for key, _ in self.relays_addr_map.items():
-            self.relays[key] = False
+            self.relays[key] = True
+        for key, _ in self.relays_addr_map.items():
+            self.set_relay(key, False)
         self.update_all()
 
     def update_all(self):
@@ -117,6 +119,10 @@ class Controller():
     def update_temperature(self, sensor):
         if sensor == "solar_up":
             value = self.get_solar_temperature()
+            if DEBUG:
+                new = raw_input("Provide value for sensor '{}' or press enter to ack value of '{}': ".format(sensor, value))
+                if new != "":
+                    value = float(new)
         elif sensor == "inside" and self.external_room_temperature_source:
             return
         else:
@@ -124,7 +130,7 @@ class Controller():
             r = requests.get(EVOK_API + "/json/sensor/" + addr)
             value = float(r.json()['data']['value'])
             if DEBUG:
-                new = input("Provide value for sensor '{}' or press enter to ack value of '{}'".format(sensor, value))
+                new = raw_input("Provide value for sensor '{}' or press enter to ack value of '{}' ".format(sensor, value))
                 if new != "":
                     value = float(new)
         try:
@@ -164,6 +170,7 @@ class Controller():
     def update_circulation(self):
         r = requests.get(EVOK_API + "/json/input/" + ADDR_INPUT_CIRCULATION)
         self.circulation_sensor = bool(r.json()['data']['value'])
+        print("Circulation: {}".format(self.circulation_sensor))
 
     def update_manual_mode(self):
         r = requests.get(EVOK_API + "/json/input/" + ADDR_INPUT_MANUAL_MODE)
@@ -178,6 +185,7 @@ class Controller():
                }
         for i in range(0, 5):
             r = requests.post(EVOK_API + "/json/relay/" + addr, json=data)
+            print(r.text)
             if r.status_code == 200:
                 break
         self.relays[relay] = state
@@ -311,9 +319,9 @@ class Controller():
         interval = self.settings['circulation']['interval']
         time_on = self.settings['circulation']['time_on']
         curr_time = time.time()
-        if curr_time < last_run + interval:
-            if state:
-                self.set_relay("circulation", True)
+        if curr_time < last_run + interval and state:
+            print("Detected water consumption. Forcing additional circulation.")
+            self.set_relay("circulation", True)
         if curr_time > last_run + time_on:
             self.set_relay("circulation", False)
             self.circulation_last_run = curr_time
@@ -328,6 +336,7 @@ class Controller():
            T8 <= self.settings['tank']['solar_max'] and \
            T2 - T3 >= self.settings['solar']['off']:
             if T1 - T3 > self.settings['solar']['on']:
+                print("Detected optimal solar conditions. Harvesting.")
                 self.set_relay("solar", True)
                 self.set_relay("pump", True)
                 flow = self.calculate_flow()
@@ -339,27 +348,31 @@ class Controller():
     def run_dhw(self):
         T8 = self.temperatures['tank_up']
         if T8 < self.settings['tank']['heater_min']:
-            self.set_relay("cwu_co", True)
+            print("Starting to heat water")
+            self.set_relay("co_cwu", True)
             self.set_relay("heater", True)
-        else:
-            if T8 < self.settings['tank']['heater_max']:
-                self.set_relay("cwu_co", False)
+            return True
+        elif T8 < self.settings['tank']['heater_max'] and self.relays["co_cwu"]:
+            return True
+        return False
 
     def run_home_heat(self):
         T9 = self.temperatures['inside']
+        self.set_relay("co_cwu", False)
         if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis']/2:
+            print("Room temperature achieved. Switching heater off.")
             self.set_relay("heater", False)
         elif T9 <= self.settings['heater']['expected'] - self.settings['heater']['hysteresis']/2:
+            print("Room temperature is too low. Starting heater.")
             self.set_relay("heater", True)
 
     def run_heater(self):
         if not self.temperatures['heater_out'] < self.settings['heater']['critical'] + 2:
             self.set_relay("heater", False)
-        elif self.temperatures['heater_out'] > self.settings['heater']['critical'] - 2:
+        elif self.temperatures['heater_out'] < self.settings['heater']['critical'] - 2:
             if not self.is_schedule:
                 self.set_relay("heater", False)
-            else:
-                self.run_dhw()
+            elif not self.run_dhw():
                 self.run_home_heat()
 
     def run_once(self):
@@ -375,6 +388,7 @@ class Controller():
 
     def run(self, interval=1):
         while True:
+            print(self.relays)
             try:
                 self.run_once()
                 time.sleep(interval)
