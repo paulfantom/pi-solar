@@ -194,9 +194,7 @@ class Controller():
             value = 0
         if value > 100:
             value = 100
-        data = {
-                 "value": float(value) / 10
-               }
+        data = {"value": float(value) / 10}
         for i in range(0, 5):
             r = requests.post(EVOK_API + "/json/ao/1", json=data)
             if r.status_code == 200:
