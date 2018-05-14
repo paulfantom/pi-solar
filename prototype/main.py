@@ -149,7 +149,7 @@ class Controller():
         # All calculations are in Kelvin, returned value is in Celsius
         try:
             resistance = (voltage * R0) / (VCC - voltage)
-            inv_T = (1/T0) + (1/B) * math.log(resistance/R0)
+            inv_T = (1 / T0) + (1 / B) * math.log(resistance / R0)
             return 1 / inv_T - 273.15
         except (ZeroDivisionError, TypeError):
             return -99
@@ -180,9 +180,7 @@ class Controller():
         if self.relays[relay] == state:
             return
         addr = self.relays_addr_map[relay]
-        data = {
-                 "value": str(int(state))
-               }
+        data = {"value": str(int(state))}
         for i in range(0, 5):
             r = requests.post(EVOK_API + "/json/relay/" + addr, json=data)
             print(r.text)
@@ -359,10 +357,10 @@ class Controller():
     def run_home_heat(self):
         T9 = self.temperatures['inside']
         self.set_relay("co_cwu", False)
-        if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis']/2:
+        if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis'] / 2:
             print("Room temperature achieved. Switching heater off.")
             self.set_relay("heater", False)
-        elif T9 <= self.settings['heater']['expected'] - self.settings['heater']['hysteresis']/2:
+        elif T9 <= self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
             print("Room temperature is too low. Starting heater.")
             self.set_relay("heater", True)
 
