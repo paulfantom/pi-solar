@@ -120,7 +120,7 @@ class Controller():
         if sensor == "solar_up":
             value = self.get_solar_temperature()
             if DEBUG:
-                new = raw_input("Provide value for sensor '{}' or press enter to ack value of '{}': ".format(sensor, value))
+                new = raw_input("Provide value for sensor '{}' or ENTER to ack value of '{}': ".format(sensor, value))
                 if new != "":
                     value = float(new)
         elif sensor == "inside" and self.external_room_temperature_source:
@@ -130,7 +130,7 @@ class Controller():
             r = requests.get(EVOK_API + "/json/sensor/" + addr)
             value = float(r.json()['data']['value'])
             if DEBUG:
-                new = raw_input("Provide value for sensor '{}' or press enter to ack value of '{}' ".format(sensor, value))
+                new = raw_input("Provide value for sensor '{}' or ENTER to ack value of '{}' ".format(sensor, value))
                 if new != "":
                     value = float(new)
         try:
