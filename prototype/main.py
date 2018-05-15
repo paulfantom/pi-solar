@@ -275,8 +275,8 @@ class Controller():
     # MQTT SECTION #
     def mqtt_publish(self, instance, value):
         self.log.info("Changed '{}' to value of '{}' on mqtt topic '{}'".format(instance,
-                                                                        value,
-                                                                        self.mqtt_topics_map[instance]))
+                                                                                value,
+                                                                                self.mqtt_topics_map[instance]))
         publish.single(self.mqtt_topics_map[instance], value, hostname=MQTT_BROKER)
 
     def mqtt_on_connect(self, client, userdata, flags, rc):
@@ -400,7 +400,7 @@ class Controller():
 
 
 if __name__ == '__main__':
-    #logging.basicConfig(level=logging.INFO)
+    # logging.basicConfig(level=logging.INFO)
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller(True)
