@@ -106,6 +106,7 @@ class Controller():
         self.manual = False
         self.relays = dict().fromkeys(self.relays_addr_map, True)
         self.temperatures = dict().fromkeys(self.temp_sensor_addr_map, -99)
+        self.temperatures['solar_up'] = -99
         for relay in self.relays:
             self.set_relay(relay, False)
         self.log.debug("Controller initiated")
@@ -310,7 +311,7 @@ class Controller():
 
     def is_schedule(self):
         curr = time.strftime("%H,%M").split(',')
-        curr_in_min = curr[0] * 60 + curr[1]
+        curr_in_min = int(curr[0]) * 60 + int(curr[1])
         on = self.settings['heater']['on'][0] * 60 + self.settings['heater']['on'][1]
         off = self.settings['heater']['off'][0] * 60 + self.settings['heater']['off'][1]
         if on <= curr_in_min < off:
@@ -374,7 +375,7 @@ class Controller():
         if not self.temperatures['heater_out'] < self.settings['heater']['critical'] + 2:
             self.set_relay("heater", False)
         elif self.temperatures['heater_out'] < self.settings['heater']['critical'] - 2:
-            if not self.is_schedule:
+            if not self.is_schedule():
                 self.set_relay("heater", False)
             elif not self.run_dhw():
                 self.run_home_heat()
