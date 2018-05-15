@@ -12,6 +12,8 @@ EVOK_API = "http://192.168.2.28:8080"
 MQTT_BROKER = "192.168.2.2"
 MQTT_PREFIX = "newS"
 
+REDUCED_EXCHANGE_TIME = 1800
+
 ADDR_RELAY_CO_CWU = "1"
 ADDR_RELAY_SOL = "2"
 ADDR_RELAY_PUMP = "3"
@@ -27,8 +29,9 @@ ADDR_TEMP_INSIDE = "28FF89DB06000034"
 ADDR_TEMP_OUTSIDE = "287CECBF060000DA"
 # ADDR_TEMP_OUTSIDE = "28BECABF0600004F"
 
-ADDR_INPUT_CIRCULATION = "1"
-ADDR_INPUT_MANUAL_MODE = "2"
+ADDR_INPUT_CIRCULATION = 1
+ADDR_INPUT_MANUAL_MODE = 2
+ADDR_INPUT_STANDALONE_MODE = 3
 
 USE_THERMISTOR = True
 
@@ -69,10 +72,12 @@ class Controller():
         self.log = logging.getLogger("SolarController")
         self.temperatures = {}
         self.relays = {}
+        self.flow = 0
         self.circulation_last_run = 0
         self.actuators_value = 0  # Backwards compatibility
-        self.dual_source = False
-        self.external_room_temperature_source = external_room_temp
+        self.external_room_temperature_source = True
+        self.reduced_exchange_time = 0
+        self.standalone_mode = False
         self.settings = {
             "circulation": {
                 "interval": 3600,
@@ -86,7 +91,7 @@ class Controller():
             "heater": {
                 "hysteresis": 0.5,
                 "critical": 80.0,
-                "expected": 20.9,
+                "expected": 21,
                 "schedule": None,
                 "on": (6, 30),
                 "off": (22, 0)
@@ -183,6 +188,9 @@ class Controller():
     def get_manual(self):
         return self.get_input_bool(ADDR_INPUT_MANUAL_MODE)
 
+    def get_standalone(self):
+        return self.get_input_bool(ADDR_INPUT_STANDALONE_MODE)
+
     def set_relay(self, relay, state):
         if self.relays[relay] == state:
             return
@@ -197,17 +205,19 @@ class Controller():
         self.actuators()  # BACKWARDS COMPATIBILITY
 
     def set_flow(self, value):
-        if value < 0:
-            value = 0
-        if value > 100:
-            value = 100
+        if value < self.settings['solar']['flow']['s_min']:
+            value = self.settings['solar']['flow']['s_min']
+        if value > self.settings['solar']['flow']['s_max']:
+            value = self.settings['solar']['flow']['s_max']
         data = {"value": float(value) / 10}
         for i in range(0, 5):
             r = requests.post(EVOK_API + "/json/ao/1", json=data)
             if r.status_code == 200:
                 break
-        self.log.debug("Solar circuit flow set to {}%".format(value))
-        self.mqtt_publish("solar_pump", value)
+        if self.flow != value:
+            self.flow = value
+            self.log.debug("Solar circuit flow set to {}%".format(value))
+            self.mqtt_publish("solar_pump", value)
 
     # HELPER METHODS (unpack old mqtt schema) #
     def actuators(self):
@@ -247,6 +257,8 @@ class Controller():
             value = float(payload)
         elif major_section == "heater":
             if minor_section in ["on", "off"]:
+                if self.get_standalone():
+                    return
                 h = int(payload[-4:-2])
                 m = int(payload[-2:])
                 if not 0 <= h < 24:
@@ -332,21 +344,38 @@ class Controller():
             self.set_relay("circulation", False)
 
     def run_solar(self):
+        # TODO: Create PID control loop
         T1 = self.temperatures['solar_up']
         T2 = self.temperatures['solar_in']
         T3 = self.temperatures['solar_out']
         T8 = self.temperatures['tank_up']
+        delta = T2 - T3
         if T1 < self.settings['solar']['critical'] and \
            T3 < T1 and \
-           T8 <= self.settings['tank']['solar_max'] and \
-           T2 - T3 >= self.settings['solar']['off']:
-            if T1 - T3 > self.settings['solar']['on']:
-                self.log.warning("Detected optimal solar conditions. Harvesting.")
-                self.set_relay("solar", True)
-                self.set_relay("pump", True)
+           T8 <= self.settings['tank']['solar_max']:
+            if delta >= self.settings['solar']['off']:
+                if T1 - T3 > self.settings['solar']['on']:
+                    self.log.warning("Detected optimal solar conditions. Harvesting.")
+                    self.set_relay("solar", True)
+                    self.set_relay("pump", True)
                 flow = self.calculate_flow()
                 self.set_flow(flow)
+                self.reduced_exchange_time = time.time() + REDUCED_EXCHANGE_TIME
+            elif time.time() < self.reduced_exchange_time:
+                # Prolong heat exchange for better efficiency
+                self.log.debug("Solar: delta T(T2 - T3)[{}] is low, reduced heat exchange".format(delta))
+                self.set_flow(0)
+            else:
+                self.log.debug("Solar: delta T(T2 - T3)[{}] is too low, switching off".format(delta))
+                self.set_relay("solar", False)
+                self.set_relay("pump", False)
         else:
+            if T1 >= self.settings['solar']['critical']:
+                self.log.debug("Solar: Critical temperature reached")
+            if T3 >= T1:
+                self.log.debug("Solar: Heat escape prevention (T_out[{}] >= T_solar[{}])".format(T3, T1))
+            if T8 > self.settings['tank']['solar_max']:
+                self.log.debug("Solar: Tank is filled with hot water")
             self.set_relay("solar", False)
             self.set_relay("pump", False)
 
@@ -382,6 +411,13 @@ class Controller():
 
     def run_once(self):
         if not self.get_manual():
+            if self.get_standalone():
+                self.external_room_temperature_source = False
+                self.settings['heater']['on'] = (6, 30)
+                self.settings['heater']['off'] = (22, 0)
+                self.settings['heater']['expected'] = 21
+            else:
+                self.external_room_temperature_source = True
             self.update_sensors()
             self.run_circulation()
             self.run_solar()
@@ -403,7 +439,7 @@ if __name__ == '__main__':
     # logging.basicConfig(level=logging.INFO)
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-    c = Controller(True)
+    c = Controller()
     mqttc = mqtt.Client()
     mqttc.on_connect = c.mqtt_on_connect
     mqttc.on_message = c.mqtt_on_message
