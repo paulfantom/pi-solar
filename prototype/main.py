@@ -5,8 +5,9 @@ import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 import time
 import math
+import logging
 
-DEBUG = False
+DEBUG = True
 EVOK_API = "http://192.168.2.28:8080"
 MQTT_BROKER = "192.168.2.2"
 MQTT_PREFIX = "newS"
@@ -17,14 +18,14 @@ ADDR_RELAY_PUMP = "3"
 ADDR_RELAY_HEAT = "4"
 ADDR_RELAY_CIRC = "5"
 
-ADDR_TEMP_HEATER_IN = "28BECABF0600004F"
-ADDR_TEMP_HEATER_OUT = "28BECABF0600004F"
-ADDR_TEMP_SOLAR_IN = "28BECABF0600004F"
-ADDR_TEMP_SOLAR_OUT = "28BECABF0600004F"
-ADDR_TEMP_TANK_UP = "28BECABF0600004F"
-ADDR_TEMP_INSIDE = "28BECABF0600004F"
-ADDR_TEMP_OUTSIDE = "28BECABF0600004F"
-ADDR_TEMP_OUTSIDE = "28BECABF0600004F"
+ADDR_TEMP_HEATER_IN = "28FF4D15151501C6"
+ADDR_TEMP_HEATER_OUT = "28FF5AF502150270"
+ADDR_TEMP_SOLAR_IN = "28FF0A9171150270"
+ADDR_TEMP_SOLAR_OUT = "28FF1A181515019F"
+ADDR_TEMP_TANK_UP = "28FF4C30041503A7"
+ADDR_TEMP_INSIDE = "28FF89DB06000034"
+ADDR_TEMP_OUTSIDE = "287CECBF060000DA"
+# ADDR_TEMP_OUTSIDE = "28BECABF0600004F"
 
 ADDR_INPUT_CIRCULATION = "1"
 ADDR_INPUT_MANUAL_MODE = "2"
@@ -65,9 +66,9 @@ class Controller():
     thermistor = USE_THERMISTOR
 
     def __init__(self, external_room_temp=False):
+        self.log = logging.getLogger("SolarController")
         self.temperatures = {}
         self.relays = {}
-        self.circulation_sensor = False
         self.circulation_last_run = 0
         self.actuators_value = 0  # Backwards compatibility
         self.dual_source = False
@@ -103,15 +104,13 @@ class Controller():
             }
         }
         self.manual = False
-        for key, _ in self.relays_addr_map.items():
-            self.relays[key] = True
-        for key, _ in self.relays_addr_map.items():
-            self.set_relay(key, False)
-        self.update_all()
+        self.relays = dict().fromkeys(self.relays_addr_map, True)
+        self.temperatures = dict().fromkeys(self.temp_sensor_addr_map, -99)
+        for relay in self.relays:
+            self.set_relay(relay, False)
+        self.log.debug("Controller initiated")
 
-    def update_all(self):
-        self.update_manual_mode()
-        self.update_circulation()
+    def update_sensors(self):
         for key, _ in self.temp_sensor_addr_map.items():
             self.update_temperature(key)
         self.update_temperature('solar_up')
@@ -128,7 +127,12 @@ class Controller():
         else:
             addr = self.temp_sensor_addr_map[sensor]
             r = requests.get(EVOK_API + "/json/sensor/" + addr)
-            value = float(r.json()['data']['value'])
+            try:
+                value = float(r.json()['data']['value'])
+            except KeyError:
+                value = 199
+                if r.status_code >= 500:
+                    self.log.critical("Temperature sensor for {} ({}) is unavailable".format(sensor, addr))
             if DEBUG:
                 new = raw_input("Provide value for sensor '{}' or ENTER to ack value of '{}' ".format(sensor, value))
                 if new != "":
@@ -140,6 +144,7 @@ class Controller():
         if old != value:
             self.temperatures[sensor] = value
             self.mqtt_publish(sensor, value)
+            self.log.debug("Updated temperature from sensor {} to {} deg".format(sensor, value))
 
     def normalize_thermistor(self, voltage):
         B = 3950  # Thermistor coefficient (in Kelvin)
@@ -167,14 +172,15 @@ class Controller():
             except (ZeroDivisionError, TypeError):
                 return -99
 
-    def update_circulation(self):
-        r = requests.get(EVOK_API + "/json/input/" + ADDR_INPUT_CIRCULATION)
-        self.circulation_sensor = bool(r.json()['data']['value'])
-        print("Circulation: {}".format(self.circulation_sensor))
+    def get_input_bool(self, addr):
+        r = requests.get(EVOK_API + "/json/input/" + str(addr))
+        return bool(r.json()['data']['value'])
 
-    def update_manual_mode(self):
-        r = requests.get(EVOK_API + "/json/input/" + ADDR_INPUT_MANUAL_MODE)
-        self.manual = bool(r.json()['data']['value'])
+    def get_circulation(self):
+        return self.get_input_bool(ADDR_INPUT_CIRCULATION)
+
+    def get_manual(self):
+        return self.get_input_bool(ADDR_INPUT_MANUAL_MODE)
 
     def set_relay(self, relay, state):
         if self.relays[relay] == state:
@@ -183,9 +189,9 @@ class Controller():
         data = {"value": str(int(state))}
         for i in range(0, 5):
             r = requests.post(EVOK_API + "/json/relay/" + addr, json=data)
-            print(r.text)
             if r.status_code == 200:
                 break
+        self.log.debug("Changed relay {} state to {}".format(relay, state))
         self.relays[relay] = state
         self.actuators()  # BACKWARDS COMPATIBILITY
 
@@ -199,6 +205,7 @@ class Controller():
             r = requests.post(EVOK_API + "/json/ao/1", json=data)
             if r.status_code == 200:
                 break
+        self.log.debug("Solar circuit flow set to {}%".format(value))
         self.mqtt_publish("solar_pump", value)
 
     # HELPER METHODS (unpack old mqtt schema) #
@@ -216,6 +223,7 @@ class Controller():
             value += str(int(self.relays[relay]))
         v = int(value, 2)
         if self.actuators_value != v:
+            self.log.debug("Relays are set to following states: {}".format(self.relays))
             self.actuators_value = v
             self.mqtt_publish("actuators", v)
 
@@ -253,19 +261,19 @@ class Controller():
             try:
                 value = float(payload)
             except ValueError as e:
-                print(e)
+                self.log.exception(e)
                 return
 
         if len(splitted) == 4:
-            print("Setting '{}/{}' is changed to {}".format(major_section, minor_section, value))
+            self.log.info("Setting '{}/{}' is changed to {}".format(major_section, minor_section, value))
             self.settings[major_section][minor_section] = value
         elif len(splitted) == 5:
-            print("Setting '{}/{}/{}' is changed to {}".format(major_section, minor_section, flow_setting, value))
+            self.log.info("Setting '{}/{}/{}' is changed to {}".format(major_section, minor_section, flow_setting, value))
             self.settings[major_section][minor_section][flow_setting] = value
 
     # MQTT SECTION #
     def mqtt_publish(self, instance, value):
-        print("Changed '{}' to value of '{}' on mqtt topic '{}'".format(instance,
+        self.log.info("Changed '{}' to value of '{}' on mqtt topic '{}'".format(instance,
                                                                         value,
                                                                         self.mqtt_topics_map[instance]))
         publish.single(self.mqtt_topics_map[instance], value, hostname=MQTT_BROKER)
@@ -276,9 +284,10 @@ class Controller():
 
     def mqtt_on_message(self, client, userdata, msg):
         topic = str(msg.topic)
+        self.log.debug("Got new mqtt message on topic '{}' with value of '{}'".format(topic, msg.payload))
         if topic == "room/1/temp_real":
             if self.external_room_temperature_source:
-                print("Room temperature set to {} from external source".format(float(msg.payload)))
+                self.log.info("Room temperature set to {} from external source".format(float(msg.payload)))
                 self.temperatures['inside'] = float(msg.payload)
         else:
             self.set_setting(topic, msg.payload)
@@ -310,17 +319,16 @@ class Controller():
             return False
 
     def run_circulation(self):
-        state = self.circulation_sensor
         last_run = self.circulation_last_run
         interval = self.settings['circulation']['interval']
         time_on = self.settings['circulation']['time_on']
         curr_time = time.time()
-        if curr_time < last_run + interval and state:
-            print("Detected water consumption. Forcing additional circulation.")
-            self.set_relay("circulation", True)
-        if curr_time > last_run + time_on:
-            self.set_relay("circulation", False)
+        if curr_time > last_run + interval and self.get_circulation():
+            self.log.warning("Detected water consumption. Forcing additional circulation.")
             self.circulation_last_run = curr_time
+            self.set_relay("circulation", True)
+        elif curr_time > last_run + time_on:
+            self.set_relay("circulation", False)
 
     def run_solar(self):
         T1 = self.temperatures['solar_up']
@@ -332,7 +340,7 @@ class Controller():
            T8 <= self.settings['tank']['solar_max'] and \
            T2 - T3 >= self.settings['solar']['off']:
             if T1 - T3 > self.settings['solar']['on']:
-                print("Detected optimal solar conditions. Harvesting.")
+                self.log.warning("Detected optimal solar conditions. Harvesting.")
                 self.set_relay("solar", True)
                 self.set_relay("pump", True)
                 flow = self.calculate_flow()
@@ -344,7 +352,7 @@ class Controller():
     def run_dhw(self):
         T8 = self.temperatures['tank_up']
         if T8 < self.settings['tank']['heater_min']:
-            print("Starting to heat water")
+            self.log.warning("Starting to heat water")
             self.set_relay("co_cwu", True)
             self.set_relay("heater", True)
             return True
@@ -356,10 +364,10 @@ class Controller():
         T9 = self.temperatures['inside']
         self.set_relay("co_cwu", False)
         if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis'] / 2:
-            print("Room temperature achieved. Switching heater off.")
+            self.log.warning("Room temperature achieved. Switching heater off.")
             self.set_relay("heater", False)
         elif T9 <= self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
-            print("Room temperature is too low. Starting heater.")
+            self.log.warning("Room temperature is too low. Starting heater.")
             self.set_relay("heater", True)
 
     def run_heater(self):
@@ -372,27 +380,28 @@ class Controller():
                 self.run_home_heat()
 
     def run_once(self):
-        if not self.manual:
-            self.update_all()
+        if not self.get_manual():
+            self.update_sensors()
             self.run_circulation()
             self.run_solar()
             self.run_heater()
         else:
-            self.update_manual_mode()
-            print("You are in manual mode for next 10s")
+            self.log.critical("You are in manual mode for next 10s")
             time.sleep(10)
 
     def run(self, interval=1):
         while True:
-            print(self.relays)
             try:
                 self.run_once()
                 time.sleep(interval)
             except Exception as e:
-                print(e)
+                self.log.exception(e)
 
 
 if __name__ == '__main__':
+    #logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller(True)
     mqttc = mqtt.Client()
     mqttc.on_connect = c.mqtt_on_connect
