@@ -1,0 +1,43 @@
+-> Dane z czujnikow
+|-> () // left-right screen switching
+
+-> Nastawy temperatur
+|-> Solar
+||-> Krytyczna
+||-> delta ON
+||-> delta OFF
+|-> Zbiornik
+||-> T max (kol)
+||-> T max (piec)
+||-> T min (piec)
+|-> Piec
+
+-> Ustawienia
+|-> Termistory
+||-> Kolektor
+|||-> Stala B
+|||-> Stala R0
+|||-> Stala T0
+||-> Zewnatrz
+|||-> same as previous
+||-> Wewnatrz
+|||-> same as previous
+|-> Adresacja MBus
+||-> Solar
+||-> Zbiornik
+||-> Piec
+|-> Inne Ustawienia
+||-> Ethernet
+|||-> IP
+|||-> DNS
+|||-> Gateway
+|||-> Subnet
+||-> MQTT
+|||-> IP
+|||-> Port
+|||-> User
+|||-> Pass
+||-> Czas
+|||-> IP
+||-> Tryb manualny (wymuszenie temperatur na czujnikach)
+
