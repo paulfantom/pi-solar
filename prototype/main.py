@@ -127,7 +127,7 @@ class Controller():
 
     def update_temperature(self, sensor):
         if sensor == "solar_up":
-            value = round(self.get_solar_temperature(),2)
+            value = round(self.get_solar_temperature(), 2)
             if DEBUG:
                 new = raw_input("Provide value for sensor '{}' or ENTER to ack value of '{}': ".format(sensor, value))
                 if new != "":
@@ -161,7 +161,7 @@ class Controller():
         T0 = 273.15 + 25  # Room temperature (in Kelvin)
         R0 = 100000  # Thermistor resistance at T0
         VCC = VOLTAGE_12_RAIL  # Voltage applied to resistance bridge
-        R_ref = 100000 # Reference resistor
+        R_ref = 100000  # Reference resistor
         # All calculations are in Kelvin, returned value is in Celsius
         MULT = 100000  # Increse precision
         try:
@@ -232,7 +232,7 @@ class Controller():
             r = requests.post(EVOK_API + "/json/ao/1", json=data)
             if r.status_code == 200:
                 break
-            if i == (EVOK_API_TRIES - 1):
+            if i == (EVOK_API_RETRIES - 1):
                 self.log.critical("Solar circuit flow couldn't be set. No comm to EVOK after {} retries".format(EVOK_API_RETRIES))
                 return
         if no_flow:
@@ -484,7 +484,6 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller()
-    
     mqttc = mqtt.Client()
     mqttc.on_connect = c.mqtt_on_connect
     mqttc.on_message = c.mqtt_on_message
