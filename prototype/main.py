@@ -127,7 +127,7 @@ class Controller():
 
     def update_temperature(self, sensor):
         if sensor == "solar_up":
-            value = self.get_solar_temperature()
+            value = round(self.get_solar_temperature(),2)
             if DEBUG:
                 new = raw_input("Provide value for sensor '{}' or ENTER to ack value of '{}': ".format(sensor, value))
                 if new != "":
@@ -346,9 +346,11 @@ class Controller():
         duty_max = self.settings['solar']['flow']['s_max']
         temp_min = self.settings['solar']['flow']['t_min']
         temp_max = self.settings['solar']['flow']['t_max']
+        T1 = self.temperatures['solar_up']
         T2 = self.temperatures['solar_in']
         T3 = self.temperatures['solar_out']
-        delta = T2 - T3
+        delta = (T1 + T2) / 2 - T3
+        # delta = T2 - T3
         if delta <= temp_min:
             return duty_min
         elif delta >= temp_max:
@@ -387,7 +389,8 @@ class Controller():
         T2 = self.temperatures['solar_in']
         T3 = self.temperatures['solar_out']
         T8 = self.temperatures['tank_up']
-        delta = T2 - T3
+        # delta = T2 - T3
+        delta = (T1 + T2) / 2 - T3
         if T1 < self.settings['solar']['critical'] and \
            T3 < T1 and \
            T8 <= self.settings['tank']['solar_max']:
@@ -436,14 +439,14 @@ class Controller():
         if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis'] / 2:
             self.log.warning("Heater: Room temperature of {} achieved".format(self.settings['heater']['expected']))
             self.set_relay("heater", False)
-        elif T9 <= self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
+        elif T9 < self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
             self.log.warning("Heater: Room temperature ({}) is too low. Heating.".format(T9))
             self.set_relay("heater", True)
 
     def run_heater(self):
-        if not self.temperatures['heater_out'] < self.settings['heater']['critical'] + 2:
+        if not self.temperatures['heater_out'] < self.settings['heater']['critical']:
             self.set_relay("heater", False)
-        elif self.temperatures['heater_out'] < self.settings['heater']['critical'] - 2:
+        elif self.temperatures['heater_out'] < self.settings['heater']['critical'] - 4:
             if not self.is_schedule():
                 self.set_relay("heater", False)
                 self.set_relay("co_cwu", False)
