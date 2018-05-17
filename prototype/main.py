@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import requests
 import paho.mqtt.client as mqtt
@@ -6,19 +7,22 @@ import paho.mqtt.publish as publish
 import time
 import math
 import logging
+import socket
 
-DEBUG = True
+DEBUG = False
 EVOK_API = "http://192.168.2.28:8080"
+EVOK_API_RETRIES = 5
 MQTT_BROKER = "192.168.2.2"
-MQTT_PREFIX = "newS"
+MQTT_PREFIX = "solarControl"
 
 REDUCED_EXCHANGE_TIME = 1800
+VOLTAGE_12_RAIL = 10.20
 
 ADDR_RELAY_CO_CWU = "1"
 ADDR_RELAY_SOL = "2"
 ADDR_RELAY_PUMP = "3"
-ADDR_RELAY_HEAT = "4"
-ADDR_RELAY_CIRC = "5"
+ADDR_RELAY_HEAT = "7"
+ADDR_RELAY_CIRC = "4"
 
 ADDR_TEMP_HEATER_IN = "28FF4D15151501C6"
 ADDR_TEMP_HEATER_OUT = "28FF5AF502150270"
@@ -63,12 +67,12 @@ class Controller():
         "solar_up":    MQTT_PREFIX + "/solar/temp",
         "solar_pump":  MQTT_PREFIX + "/solar/pump",
         "tank_up":     MQTT_PREFIX + "/tank/temp_up",
-        "outside":     MQTT_PREFIX + "/outside/temp",
-        "inside":      MQTT_PREFIX + "/room/1/temp_current"
+        "outside":     "outside/temp",
+        "inside":      "room/1/temp_current"
     }
     thermistor = USE_THERMISTOR
 
-    def __init__(self, external_room_temp=False):
+    def __init__(self, standalone=False):
         self.log = logging.getLogger("SolarController")
         self.temperatures = {}
         self.relays = {}
@@ -77,7 +81,7 @@ class Controller():
         self.actuators_value = 0  # Backwards compatibility
         self.external_room_temperature_source = True
         self.reduced_exchange_time = 0
-        self.standalone_mode = False
+        self.standalone = standalone
         self.settings = {
             "circulation": {
                 "interval": 3600,
@@ -101,8 +105,8 @@ class Controller():
                 "on": 8.0,
                 "off": 5.0,
                 "flow": {
-                    "s_min": 30,
-                    "s_max": 60,
+                    "s_min": 35,
+                    "s_max": 41,
                     "t_min": 5.0,
                     "t_max": 9.0
                 }
@@ -156,25 +160,31 @@ class Controller():
         B = 3950  # Thermistor coefficient (in Kelvin)
         T0 = 273.15 + 25  # Room temperature (in Kelvin)
         R0 = 100000  # Thermistor resistance at T0
-        VCC = 12  # Voltage applied to resistance bridge
+        VCC = VOLTAGE_12_RAIL  # Voltage applied to resistance bridge
+        R_ref = 100000 # Reference resistor
         # All calculations are in Kelvin, returned value is in Celsius
+        MULT = 100000  # Increse precision
         try:
-            resistance = (voltage * R0) / (VCC - voltage)
-            inv_T = (1 / T0) + (1 / B) * math.log(resistance / R0)
-            return 1 / inv_T - 273.15
+            resistance = (VCC - voltage) * R_ref / voltage
+            inv_T = (1 * MULT / T0) + (1 * MULT / B) * math.log(resistance / R0)
+            T = 1 * MULT / inv_T - 273.15
+            self.log.debug("Calculated thermistor resistance is {} which maps to {} deg C".format(resistance, T))
+            return T
         except (ZeroDivisionError, TypeError):
             return -99
 
     def get_solar_temperature(self):
-        r = requests.get(EVOK_API + "/json/analoginput/1")
+        r = requests.get(EVOK_API + "/json/analoginput/2")
         voltage = float(r.json()['data']['value'])
+        # Get real voltage reading
+        voltage = voltage * VOLTAGE_12_RAIL / 12
         if self.thermistor:
             return self.normalize_thermistor(voltage)
         else:
             T_min = 0    # 0V
             T_max = 200  # 10V
             try:
-                return (T_max - T_min) * voltage / 10 + T_min
+                return (T_max - T_min) * voltage / VOLTAGE_12_RAIL + T_min
             except (ZeroDivisionError, TypeError):
                 return -99
 
@@ -189,6 +199,8 @@ class Controller():
         return self.get_input_bool(ADDR_INPUT_MANUAL_MODE)
 
     def get_standalone(self):
+        if self.standalone:
+            return True
         return self.get_input_bool(ADDR_INPUT_STANDALONE_MODE)
 
     def set_relay(self, relay, state):
@@ -196,24 +208,35 @@ class Controller():
             return
         addr = self.relays_addr_map[relay]
         data = {"value": str(int(state))}
-        for i in range(0, 5):
+        for i in range(0, EVOK_API_RETRIES):
             r = requests.post(EVOK_API + "/json/relay/" + addr, json=data)
             if r.status_code == 200:
                 break
+            if i == (EVOK_API_RETRIES - 1):
+                self.log.critical("Relay state couldn't be changed. No comm to EVOK after {} retries".format(EVOK_API_RETRIES))
+                return
         self.log.debug("Changed relay {} state to {}".format(relay, state))
         self.relays[relay] = state
         self.actuators()  # BACKWARDS COMPATIBILITY
 
     def set_flow(self, value):
-        if value < self.settings['solar']['flow']['s_min']:
+        # Flow set to 0, sets Analog Output to minimum value, but sends value of 0 over MQTT
+        # This allows to use min and max as maximum setpoints for hardware calibration
+        # And allows easier analysis in the future
+        no_flow = False
+        if value == 0:
+            no_flow = True
             value = self.settings['solar']['flow']['s_min']
-        if value > self.settings['solar']['flow']['s_max']:
-            value = self.settings['solar']['flow']['s_max']
         data = {"value": float(value) / 10}
-        for i in range(0, 5):
+        for i in range(0, EVOK_API_RETRIES):
             r = requests.post(EVOK_API + "/json/ao/1", json=data)
             if r.status_code == 200:
                 break
+            if i == (EVOK_API_TRIES - 1):
+                self.log.critical("Solar circuit flow couldn't be set. No comm to EVOK after {} retries".format(EVOK_API_RETRIES))
+                return
+        if no_flow:
+            value = 0
         if self.flow != value:
             self.flow = value
             self.log.debug("Solar circuit flow set to {}%".format(value))
@@ -286,10 +309,13 @@ class Controller():
 
     # MQTT SECTION #
     def mqtt_publish(self, instance, value):
-        self.log.info("Changed '{}' to value of '{}' on mqtt topic '{}'".format(instance,
-                                                                                value,
-                                                                                self.mqtt_topics_map[instance]))
-        publish.single(self.mqtt_topics_map[instance], value, hostname=MQTT_BROKER)
+        try:
+            publish.single(self.mqtt_topics_map[instance], value, hostname=MQTT_BROKER)
+            self.log.info("Changed '{}' to value of '{}' on mqtt topic '{}'".format(instance,
+                                                                                    value,
+                                                                                    self.mqtt_topics_map[instance]))
+        except socket.error:
+            self.log.critical("Couldn't send message to MQTT broker at {}".format(MQTT_BROKER))
 
     def mqtt_on_connect(self, client, userdata, flags, rc):
         client.subscribe("solarControl/+/settings/#")
@@ -307,6 +333,15 @@ class Controller():
 
     # PROGRAM #
     def calculate_flow(self):
+        # Flow function:
+        # ^ [flow]                        | s_min, ΔT <= T_min
+        # |                    flow(ΔT) = | A * ΔT + B, A = (s_max - s_min) / (T_max - T_min), B = s_min - T_min * A
+        # |       -----------             | s_max, ΔT >= T_max
+        # |      /
+        # |     /
+        # |____/
+        # |                  [ΔT]
+        # +------------------->
         duty_min = self.settings['solar']['flow']['s_min']
         duty_max = self.settings['solar']['flow']['s_max']
         temp_min = self.settings['solar']['flow']['t_min']
@@ -314,12 +349,15 @@ class Controller():
         T2 = self.temperatures['solar_in']
         T3 = self.temperatures['solar_out']
         delta = T2 - T3
-        if delta >= temp_max:
+        if delta <= temp_min:
+            return duty_min
+        elif delta >= temp_max:
             return duty_max
-        # y = ax + b
-        a = (duty_max - duty_min) / (temp_max - temp_min)
-        b = duty_min - temp_min * a
-        return a * delta + b
+        else:
+            # flow(ΔT) = A * ΔT + B
+            a = (duty_max - duty_min) / (temp_max - temp_min)
+            b = duty_min - temp_min * a
+            return a * delta + b
 
     def is_schedule(self):
         curr = time.strftime("%H,%M").split(',')
@@ -364,11 +402,12 @@ class Controller():
             elif time.time() < self.reduced_exchange_time:
                 # Prolong heat exchange for better efficiency
                 self.log.debug("Solar: delta T(T2 - T3)[{}] is low, reduced heat exchange".format(delta))
-                self.set_flow(0)
+                self.set_flow(self.settings['solar']['flow']['s_min'])
             else:
                 self.log.debug("Solar: delta T(T2 - T3)[{}] is too low, switching off".format(delta))
                 self.set_relay("solar", False)
                 self.set_relay("pump", False)
+                self.set_flow(0)
         else:
             if T1 >= self.settings['solar']['critical']:
                 self.log.debug("Solar: Critical temperature reached")
@@ -378,11 +417,12 @@ class Controller():
                 self.log.debug("Solar: Tank is filled with hot water")
             self.set_relay("solar", False)
             self.set_relay("pump", False)
+            self.set_flow(0)
 
     def run_dhw(self):
         T8 = self.temperatures['tank_up']
         if T8 < self.settings['tank']['heater_min']:
-            self.log.warning("Starting to heat water")
+            self.log.warning("Heater: Heating water")
             self.set_relay("co_cwu", True)
             self.set_relay("heater", True)
             return True
@@ -394,10 +434,10 @@ class Controller():
         T9 = self.temperatures['inside']
         self.set_relay("co_cwu", False)
         if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis'] / 2:
-            self.log.warning("Room temperature achieved. Switching heater off.")
+            self.log.warning("Heater: Room temperature of {} achieved".format(self.settings['heater']['expected']))
             self.set_relay("heater", False)
         elif T9 <= self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
-            self.log.warning("Room temperature is too low. Starting heater.")
+            self.log.warning("Heater: Room temperature ({}) is too low. Heating.".format(T9))
             self.set_relay("heater", True)
 
     def run_heater(self):
@@ -406,6 +446,7 @@ class Controller():
         elif self.temperatures['heater_out'] < self.settings['heater']['critical'] - 2:
             if not self.is_schedule():
                 self.set_relay("heater", False)
+                self.set_relay("co_cwu", False)
             elif not self.run_dhw():
                 self.run_home_heat()
 
@@ -440,9 +481,22 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller()
+    
     mqttc = mqtt.Client()
     mqttc.on_connect = c.mqtt_on_connect
     mqttc.on_message = c.mqtt_on_message
-    mqttc.connect(MQTT_BROKER)
+    # Failover mode (when MQTT Broker is not available at start time):
+    connected = False
+    c.standalone = True
+    while not connected:
+        try:
+            mqttc.connect(MQTT_BROKER)
+            connected = True
+            c.standalone = False
+        except socket.error:
+            c.run_once()
+            time.sleep(0.5)
+
+    # Normal operation
     mqttc.loop_start()
     c.run(0.5)
