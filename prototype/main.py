@@ -39,6 +39,7 @@ ADDR_INPUT_STANDALONE_MODE = 2
 
 USE_THERMISTOR = False
 
+
 class Controller():
     temp_sensor_addr_map = {
         "heater_in":  ADDR_TEMP_HEATER_IN,
