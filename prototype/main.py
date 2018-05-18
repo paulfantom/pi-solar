@@ -16,12 +16,12 @@ MQTT_BROKER = "192.168.2.2"
 MQTT_PREFIX = "solarControl"
 
 REDUCED_EXCHANGE_TIME = 1800
-VOLTAGE_12_RAIL = 10.20
+VOLTAGE_12_RAIL = 12
 
 ADDR_RELAY_CO_CWU = "1"
 ADDR_RELAY_SOL = "2"
 ADDR_RELAY_PUMP = "3"
-ADDR_RELAY_HEAT = "7"
+ADDR_RELAY_HEAT = "5"
 ADDR_RELAY_CIRC = "4"
 
 ADDR_TEMP_HEATER_IN = "28FF4D15151501C6"
@@ -34,11 +34,10 @@ ADDR_TEMP_OUTSIDE = "287CECBF060000DA"
 # ADDR_TEMP_OUTSIDE = "28BECABF0600004F"
 
 ADDR_INPUT_CIRCULATION = 1
-ADDR_INPUT_MANUAL_MODE = 2
-ADDR_INPUT_STANDALONE_MODE = 3
+ADDR_INPUT_MANUAL_MODE = 3
+ADDR_INPUT_STANDALONE_MODE = 2
 
-USE_THERMISTOR = True
-
+USE_THERMISTOR = False
 
 class Controller():
     temp_sensor_addr_map = {
@@ -98,7 +97,8 @@ class Controller():
                 "expected": 21,
                 "schedule": None,
                 "on": (6, 30),
-                "off": (22, 0)
+                "off": (22, 0),
+                "forced_heating": False
             },
             "solar": {
                 "critical": 90.00,
@@ -128,6 +128,8 @@ class Controller():
     def update_temperature(self, sensor):
         if sensor == "solar_up":
             value = round(self.get_solar_temperature(), 2)
+            if self.temperatures[sensor] - 0.25 < value < self.temperatures[sensor] + 0.25:
+                return
             if DEBUG:
                 new = raw_input("Provide value for sensor '{}' or ENTER to ack value of '{}': ".format(sensor, value))
                 if new != "":
@@ -174,7 +176,7 @@ class Controller():
             return -99
 
     def get_solar_temperature(self):
-        r = requests.get(EVOK_API + "/json/analoginput/2")
+        r = requests.get(EVOK_API + "/json/analoginput/1")
         voltage = float(r.json()['data']['value'])
         # Get real voltage reading
         voltage = voltage * VOLTAGE_12_RAIL / 12
@@ -184,9 +186,11 @@ class Controller():
             T_min = 0    # 0V
             T_max = 200  # 10V
             try:
-                return (T_max - T_min) * voltage / VOLTAGE_12_RAIL + T_min
+                T = (T_max - T_min) * voltage / VOLTAGE_12_RAIL + T_min
+                self.log.debug("Measured voltage is {} which maps to {} deg C".format(voltage, T))
+                return T
             except (ZeroDivisionError, TypeError):
-                return -99
+                return -99.0
 
     def get_input_bool(self, addr):
         r = requests.get(EVOK_API + "/json/input/" + str(addr))
@@ -263,6 +267,8 @@ class Controller():
 
     # Settings parser #
     def set_setting(self, mqtt_topic, payload):
+        if self.get_standalone():
+            return
         splitted = mqtt_topic.split('/')
         if len(splitted) not in (4, 5):
             raise ValueError("Wrong mqtt topic message: " + mqtt_topic)
@@ -270,8 +276,10 @@ class Controller():
         minor_section = splitted[3]
         try:
             flow_setting = splitted[4]
+            time_section = flow_setting
         except IndexError:
-            pass
+            flow_setting = None
+            time_section = None
         if major_section == "circulate":
             value = int(payload)
             if minor_section == "interval":
@@ -279,18 +287,20 @@ class Controller():
         elif major_section == "tank" or major_section == "solar":
             value = float(payload)
         elif major_section == "heater":
-            if minor_section in ["on", "off"]:
-                if self.get_standalone():
-                    return
-                h = int(payload[-4:-2])
-                m = int(payload[-2:])
-                if not 0 <= h < 24:
-                    h = 0
-                if not 0 <= m < 60:
-                    m = 0
-                value = (h, m)
-            elif minor_section == "schedule":
-                value = str(payload)
+            if minor_section == "schedule":
+                if time_section in ["on", "off"]:
+                    h = int(payload[-4:-2])
+                    m = int(payload[-2:])
+                    if not 0 <= h < 24:
+                        h = 0
+                    if not 0 <= m < 60:
+                        m = 0
+                    value = (h, m)
+                else:
+                    value = str(payload)
+            elif minor_section == "heating_on":
+                minor_section = "forced_heating"
+                value = bool(int(payload))
             else:
                 value = float(payload)
         else:
@@ -300,7 +310,10 @@ class Controller():
                 self.log.exception(e)
                 return
 
-        if len(splitted) == 4:
+        if minor_section == "schedule" and time_section is not None:
+            self.log.info("Setting '{}/{}/{}' is changed to {}".format(major_section, minor_section, time_section, value))
+            self.settings[major_section][minor_section] = value
+        elif len(splitted) == 4:
             self.log.info("Setting '{}/{}' is changed to {}".format(major_section, minor_section, value))
             self.settings[major_section][minor_section] = value
         elif len(splitted) == 5:
@@ -362,6 +375,8 @@ class Controller():
             return a * delta + b
 
     def is_schedule(self):
+        if self.settings['heater']['forced_heating']:
+            return True
         curr = time.strftime("%H,%M").split(',')
         curr_in_min = int(curr[0]) * 60 + int(curr[1])
         on = self.settings['heater']['on'][0] * 60 + self.settings['heater']['on'][1]
