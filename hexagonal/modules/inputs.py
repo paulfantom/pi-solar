@@ -25,7 +25,7 @@ class Inputs(object):
             if r.status_code == 200:
                 return bool(r.json()['data']['value'])
         except socket.error:
-            pass
+            return False
 
     def update(self):
         for i in range(len(self.states)):

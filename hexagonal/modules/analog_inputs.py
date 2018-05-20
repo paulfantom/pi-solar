@@ -16,21 +16,24 @@ class AnalogInputs(object):
         self.mqtt_broker = mqtt_broker
         self.values = [False for i in range(0, inputs_no)]
         self.evok_api = evok_api
-        self.log.info("Inputs initialized")
+        self.log.info("Analog inputs initialized")
 
     def get_input(self, pin):
         try:
             evok_api_endpoint = self.evok_api + "/json/analoginput/" + str(pin)
             r = requests.get(evok_api_endpoint)
             if r.status_code == 200:
-                return bool(r.json()['data']['value'])
+                # Return percent of maximum value, since EVOK doesn't return real voltage
+                return float(r.json()['data']['value']) * 10
         except socket.error:
-            pass
+            return -99
 
     def update(self):
         for i in range(len(self.values)):
             value = self.get_input(i + 1)
-            if value != self.values[i]:
+            # if value != self.values[i]:
+            # Do not update on very low (<0.5%) variations of detected value
+            if self.values[i] - 0.5 < value < self.values[i] + 0.5:
                 topic = "unipi/analoginput/" + str(i + 1)
                 publish.single(topic, value, hostname=self.mqtt_broker)
                 self.values[i] = value
