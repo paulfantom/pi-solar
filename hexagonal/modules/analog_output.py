@@ -20,10 +20,10 @@ class AnalogOutput(object):
         self.log.info("Output initialized")
 
     def set_output(self, value):
-        data = {"value": value}
         if self._value == value:
             self.log.debug("Previous value same as desired")
             return
+        data = {"value": float(value) / 10}
         while True:
             try:
                 r = requests.post(self.evok_endpoint, json=data)

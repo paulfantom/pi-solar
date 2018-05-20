@@ -29,12 +29,12 @@ class Inputs(object):
 
     def update(self):
         for i in range(len(self.states)):
-            state = self.get_input(i)
+            state = self.get_input(i + 1)
             if state != self.states[i]:
-                topic = "unipi/input/" + str(i)
+                topic = "unipi/input/" + str(i + 1)
                 publish.single(topic, state, hostname=self.mqtt_broker)
                 self.states[i] = state
-                self.log.info("Changed input '{}' to '{}'".format(i, state))
+                self.log.info("Changed input '{}' to '{}'".format(i + 1, state))
 
 
 if __name__ == "__main__":
