@@ -3,7 +3,6 @@
 
 import logging
 import requests
-import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 import socket
 
@@ -15,7 +14,7 @@ class Inputs(object):
     def __init__(self, inputs_no=12, mqtt_broker="localhost", evok_api="http://localhost:8080"):
         self.log = logging.getLogger("Inputs")
         self.mqtt_broker = mqtt_broker
-        self.states = [False for i in range(0,inputs_no)]
+        self.states = [False for i in range(0, inputs_no)]
         self.evok_api = evok_api
         self.log.info("Inputs initialized")
 
@@ -35,7 +34,7 @@ class Inputs(object):
                 topic = "unipi/input/" + str(i)
                 publish.single(topic, state, hostname=self.mqtt_broker)
                 self.states[i] = state
-                self.log.info("Changed input '{}' to '{}'".format(i, state)
+                self.log.info("Changed input '{}' to '{}'".format(i, state))
 
 
 if __name__ == "__main__":

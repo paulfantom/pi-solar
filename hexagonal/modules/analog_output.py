@@ -32,14 +32,13 @@ class AnalogOutput(object):
                     self._value = value
                     break
             except socket.error:
-                self.log.critical("Setting analog output was unsuccessful".format(pin))
+                self.log.critical("Setting analog output to {}% was unsuccessful".format(value))
 
     def on_connect(self, client, userdata, flags, rc):
         client.subscribe("unipi/ao")
 
     def on_message(self, client, userdata, msg):
         self.log.info("MQTT message received: topic '{}', value: '{}'".format(msg.topic, msg.payload))
-        relay = str(msg.topic).split('/')[-1]
         value = int(msg.payload)
         if value > 100 or value < 0:
             self.log.warning("Received invalid value of {}".format(value))

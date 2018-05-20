@@ -10,7 +10,7 @@ import socket
 class Relay(object):
     def __init__(self, pin, evok_api_endpoint):
         self._state = None
-        self.api = evok_api
+        self.api = evok_api_endpoint
 
     def set_state(self, state):
         if self._state == state:
@@ -31,7 +31,7 @@ class RelayController(object):
     def __init__(self, relays_no=8, mqtt_broker="localhost", evok_api="http://localhost:8080"):
         self.log = logging.getLogger("Relays")
         self.relays = []
-        for i in range(0,relays_no):
+        for i in range(0, relays_no):
             api_endpoint = evok_api + "/json/relay/" + str(i + 1)
             self.relays.append(Relay(i, api_endpoint))
         mqttc = mqtt.Client()
