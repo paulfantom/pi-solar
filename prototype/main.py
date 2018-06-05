@@ -106,8 +106,8 @@ class Controller():
                 "on": 8.0,
                 "off": 5.0,
                 "flow": {
-                    "s_min": 35,
-                    "s_max": 41,
+                    "s_min": 30,
+                    "s_max": 35,
                     "t_min": 5.0,
                     "t_max": 9.0
                 }
