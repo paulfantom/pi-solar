@@ -22,7 +22,7 @@ solar:
     pump: True
     valve: True
   setpoints:
-    flow: { duty: [35, 41], temperature: [5.0, 9.0] }
+    flow: { duty: [30, 35], temperature: [5.0, 9.0] }
     critical: 90.0
     on: 8.0
     off: 5.0
