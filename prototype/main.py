@@ -453,10 +453,10 @@ class Controller():
         T9 = self.temperatures['inside']
         self.set_relay("co_cwu", False)
         if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis'] / 2:
-            self.log.warning("Heater: Room temperature of {} achieved".format(self.settings['heater']['expected']))
+            self.log.debug("Heater: Room temperature of {} achieved".format(self.settings['heater']['expected']))
             self.set_relay("heater", False)
         elif T9 < self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
-            self.log.warning("Heater: Room temperature ({}) is too low. Heating.".format(T9))
+            self.log.debug("Heater: Room temperature ({}) is too low. Heating.".format(T9))
             self.set_relay("heater", True)
 
     def run_heater(self):
@@ -490,14 +490,17 @@ class Controller():
         while True:
             try:
                 self.run_once()
-                time.sleep(interval)
+            except ConnectionError:
+                self.log.error("Problems with connecting to EVOK. Retrying in {}".format(interval))
             except Exception as e:
                 self.log.exception(e)
+            finally:
+                time.sleep(interval)
 
 
 if __name__ == '__main__':
-    # logging.basicConfig(level=logging.INFO)
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.WARNING)
+    # logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller()
     mqttc = mqtt.Client()
