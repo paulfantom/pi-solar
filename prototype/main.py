@@ -106,8 +106,8 @@ class Controller():
                 "on": 8.0,
                 "off": 5.0,
                 "flow": {
-                    "s_min": 30,
-                    "s_max": 35,
+                    "s_min": 18,
+                    "s_max": 30,
                     "t_min": 5.0,
                     "t_max": 9.0
                 }
@@ -363,8 +363,8 @@ class Controller():
         T1 = self.temperatures['solar_up']
         T2 = self.temperatures['solar_in']
         T3 = self.temperatures['solar_out']
-        delta = (T1 + T2) / 2 - T3
-        # delta = T2 - T3
+        # delta = (T1 + T2) / 2 - T3
+        delta = T2 - T3
         if delta <= temp_min:
             return duty_min
         elif delta >= temp_max:
@@ -406,7 +406,10 @@ class Controller():
         T3 = self.temperatures['solar_out']
         T8 = self.temperatures['tank_up']
         # delta = T2 - T3
-        delta = (T1 + T2) / 2 - T3
+        if T1 >= T2: # Experimental start conditions
+            delta = (T1 + T2) / 2 - T3
+        else:
+            delta = T2 - T3
         if T1 < self.settings['solar']['critical'] and \
            T3 < T1 and \
            T8 <= self.settings['tank']['solar_max']:
@@ -453,10 +456,10 @@ class Controller():
         T9 = self.temperatures['inside']
         self.set_relay("co_cwu", False)
         if T9 >= self.settings['heater']['expected'] + self.settings['heater']['hysteresis'] / 2:
-            self.log.warning("Heater: Room temperature of {} achieved".format(self.settings['heater']['expected']))
+            self.log.debug("Heater: Room temperature of {} achieved".format(self.settings['heater']['expected']))
             self.set_relay("heater", False)
         elif T9 < self.settings['heater']['expected'] - self.settings['heater']['hysteresis'] / 2:
-            self.log.warning("Heater: Room temperature ({}) is too low. Heating.".format(T9))
+            self.log.debug("Heater: Room temperature ({}) is too low. Heating.".format(T9))
             self.set_relay("heater", True)
 
     def run_heater(self):
@@ -490,14 +493,17 @@ class Controller():
         while True:
             try:
                 self.run_once()
-                time.sleep(interval)
+            except ConnectionError:
+                self.log.error("Problems with connecting to EVOK. Retrying in {}".format(interval))
             except Exception as e:
                 self.log.exception(e)
+            finally:
+                time.sleep(interval)
 
 
 if __name__ == '__main__':
-    # logging.basicConfig(level=logging.INFO)
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.WARNING)
+    # logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller()
     mqttc = mqtt.Client()
