@@ -406,10 +406,10 @@ class Controller():
         T3 = self.temperatures['solar_out']
         T8 = self.temperatures['tank_up']
         # delta = T2 - T3
-        if T1 >= T2: # Experimental start conditions
+        if T1 >= T2: # Experimental starting conditions
             delta = (T1 + T2) / 2 - T3
         else:
-            delta = T2 - T3
+            delta = T1 - T3
         if T1 < self.settings['solar']['critical'] and \
            T3 < T1 and \
            T8 <= self.settings['tank']['solar_max']:
@@ -502,7 +502,7 @@ class Controller():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO)
     # logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     c = Controller()
