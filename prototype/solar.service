@@ -1,0 +1,24 @@
+[Unit]
+Description=Solar system controller
+Requires=evok.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python -u /opt/solar/main.py
+StartLimitIntervalSec=300
+TimeoutStopSec=3
+#SyslogLevel=debug
+SyslogIdentifier=solar
+StandardOutput=syslog+console
+StandardError=syslog+console
+WorkingDirectory=/opt/solar
+
+#User=evok
+#Group=evok
+
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+#Alias=evok.service
