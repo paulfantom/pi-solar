@@ -282,6 +282,7 @@ class Controller():
             flow_setting = None
             time_section = None
         if major_section == "circulate":
+            major_section = "circulation"
             value = int(payload)
             if minor_section == "interval":
                 value = int(payload) * 60
@@ -523,4 +524,4 @@ if __name__ == '__main__':
 
     # Normal operation
     mqttc.loop_start()
-    c.run(0.5)
+    c.run(1)
